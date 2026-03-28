@@ -1,0 +1,26 @@
+# ExplainSentinel — requirements.txt
+# Install: pip install -r requirements.txt
+
+# Core NLP
+transformers==4.40.2
+torch>=2.0.0
+
+# Explainability
+lime==0.2.0.1
+shap>=0.44.0
+
+# Dataset
+datasets==2.19.0
+
+# Evaluation
+scikit-learn>=1.3.0
+
+# Visualization & App
+streamlit>=1.33.0
+plotly>=5.20.0
+matplotlib>=3.8.0
+seaborn>=0.13.0
+
+# Utilities
+numpy>=1.26.0
+pandas>=2.2.0
