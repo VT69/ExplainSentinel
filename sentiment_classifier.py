@@ -30,9 +30,18 @@ class FinBERTClassifier:
             torch.set_num_threads(1)
             
         self.tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-        self.model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
-        self.model.to(self.device)
-        self.model.eval()
+        model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
+        model.to(self.device)
+        model.eval()
+        
+        # Massively speed up CPU inference (2x-4x) and halve RAM usage via INT8 quantization
+        if self.device == "cpu":
+            self.model = torch.quantization.quantize_dynamic(
+                model, {torch.nn.Linear}, dtype=torch.qint8
+            )
+        else:
+            self.model = model
+            
         print("[FinBERT] Model loaded.")
 
     def predict(self, texts: list[str], batch_size: int = 8) -> list[dict]:

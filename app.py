@@ -53,8 +53,8 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 with st.sidebar:
     st.markdown("## ⚙️ Settings")
     num_features = st.slider("LIME tokens to highlight", 5, 20, 8)
-    num_samples  = st.slider("LIME perturbation samples", 50, 300, 150, step=50,
-                             help="More = stable but slower. 150 is a good balance.")
+    num_samples  = st.slider("LIME perturbation samples", 50, 300, 50, step=50,
+                             help="More = stable but slower. 50 is fast for presentations.")
     show_internals = st.toggle("🔬 Show full internals", value=True)
     st.markdown("---")
     st.markdown("🏠 [🔍 Analyser](/)")
