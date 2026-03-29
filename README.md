@@ -4,124 +4,104 @@
 *An NLP project built on top of [FinSentinel](https://github.com/VT69/FinSentinel)*
 
 [![Python](https://img.shields.io/badge/Python-3.11-3b82f6?style=flat-square&logo=python)](https://python.org)
+[![Streamlit](https://img.shields.io/badge/Streamlit-App-FF4B4B?style=flat-square&logo=streamlit)](https://streamlit.io/)
 [![Model](https://img.shields.io/badge/Model-ProsusAI%2FFinBERT-10b981?style=flat-square)](https://huggingface.co/ProsusAI/finbert)
-[![Explainability](https://img.shields.io/badge/XAI-LIME%20%2B%20SHAP-f59e0b?style=flat-square)]()
+![Explainability](https://img.shields.io/badge/XAI-LIME%20%2B%20Attention%20Heatmaps-f59e0b?style=flat-square)
 [![Dataset](https://img.shields.io/badge/Dataset-Financial%20PhraseBank-6366f1?style=flat-square)](https://huggingface.co/datasets/financial_phrasebank)
 
 ---
 
-## Overview
+## 📖 Overview
 
 FinSentinel showed that sentiment signals carry weak but statistically significant predictive value over price-based baselines. A natural follow-up question is:
 
 > **Which words actually drive these sentiment predictions, and how much do we trust the model?**
 
-ExplainSentinel answers this by adding a **token-level explainability layer** on top of FinBERT using **LIME** (Local Interpretable Model-agnostic Explanations) and **SHAP**, deployed as an interactive Streamlit web app.
+ExplainSentinel answers this by adding a **token-level explainability layer** on top of FinBERT using **LIME** (Local Interpretable Model-agnostic Explanations) alongside internal **Attention Heatmaps**, deployed as an interactive, highly-optimized Streamlit web app.
 
 ---
 
-## Key Features
+## ✨ Key Capabilities
 
-| Feature | Details |
-|---|---|
-| **Model** | ProsusAI/FinBERT (fine-tuned BERT on financial corpora) |
-| **Task** | 3-class sentiment: Positive / Negative / Neutral |
-| **Explainability** | LIME (token-level local explanations) + SHAP (global) |
-| **Dataset** | Financial PhraseBank — `sentences_allagree` split (~2264 samples) |
-| **App** | Streamlit — single-headline + batch mode |
+The ExplainSentinel interactive dashboard breaks down every aspect of a prediction:
 
----
-
-## Results on Financial PhraseBank
-
-| Metric | Score |
-|---|---|
-| Accuracy | ~0.875 |
-| Macro F1 | ~0.860 |
-
-> Run `python evaluate.py` to reproduce. Results saved to `outputs/`.
+1. **Step 1: NLP Tokenisation**
+   Displays the exact BERT WordPiece tokens, sub-words (`##`), IDs, and internal attention masks generated from the input text.
+2. **Step 2: FinBERT Forward Pass**
+   Visualizes the raw classification logits extracted directly from the classification head and charts the softmax probability conversion for `Positive`, `Negative`, and `Neutral` labels.
+3. **Step 3: Attention Weight Heatmaps**
+   Extracts layer-12 representations to plot an interactive 2D heatmap of Self-Attention. Shows precisely which tokens the `[CLS]` classification token is paying attention to in order to make a decision.
+4. **Step 4: LIME Explainability**
+   Runs a localized perturbation test (~150 inferences) to build an exact word-by-word visual breakdown. Green words support the prediction, while Red words push against it.
 
 ---
 
-## Project Structure
+## 🛠 Project Structure
 
-```
+```text
 ExplainSentinel/
-├── sentiment_classifier.py   # FinBERT inference wrapper
-├── explainer.py              # LIME + SHAP explainability
-├── evaluate.py               # Evaluation on Financial PhraseBank
-├── app.py                    # Streamlit web app
-├── requirements.txt
-└── outputs/                  # Generated charts & metrics (after eval)
-    ├── confusion_matrix.png
-    ├── label_distribution.png
-    └── metrics.txt
+├── app.py                    # Main Streamlit Dashboard (Analyser)
+├── pages/
+│   └── explanation.py        # Streamlit page detailing how the tech works
+├── sentiment_classifier.py   # OOM-safe FinBERT inference wrapper
+├── explainer.py              # LIME perturbation & plotting logic 
+├── evaluate.py               # Evaluation benchmark on Financial PhraseBank
+├── requirements.txt          # Python dependencies
+└── outputs/                  # Auto-generated charts & metrics (after eval)
 ```
 
 ---
 
-## Quickstart
+## 🚀 Quickstart
+
+You can run the full ExplainSentinel dashboard locally. The ProsusAI/FinBERT model weights (~440MB) will be downloaded automatically by HuggingFace on the first run.
 
 ```bash
-# 1. Clone
+# 1. Clone the repository
 git clone https://github.com/VT69/ExplainSentinel.git
 cd ExplainSentinel
 
-# 2. Install
+# 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Run the app
+# 3. Launch the Analyzer Web App
 streamlit run app.py
-
-# 4. (Optional) Reproduce evaluation
-python evaluate.py
 ```
+
+*Note: The backend has been explicitly hardened to prevent CPU thread starvation and Out-of-Memory (OOM) errors during heavy LIME generation steps.*
 
 ---
 
-## How LIME Works Here
+## 📊 Evaluation & Benchmarks
 
-LIME perturbs the input text by randomly masking tokens and observing how FinBERT's output probability changes. It fits a local linear model to approximate FinBERT's decision boundary around that specific input.
+Our FinBERT implementation was benchmarked on the `sentences_allagree` split of the Financial PhraseBank dataset (~2,264 strictly annotated samples).
 
-```
-Input: "Apple reports record earnings, crushing analyst estimates."
+| Metric | Score |
+| --- | --- |
+| Accuracy | ~87.5% |
+| Macro F1 | ~86.0% |
 
-→ FinBERT predicts: Positive (94.2%)
-
-→ LIME token weights:
-  + record        ██████████  +0.18  (strongly pushes → Positive)
-  + crushing      ████████    +0.14
-  + earnings      ███████     +0.12
-  - analyst       ███         -0.06  (slightly opposes)
-```
-
-Green tokens **support** the predicted label. Red tokens **oppose** it. Intensity reflects weight magnitude.
+> Run `python evaluate.py` to reproduce the benchmarks locally. Visualizations like the confusion matrix and label distributions are automatically saved to `outputs/`.
 
 ---
 
-## Connection to FinSentinel
+## 🔗 Connection to FinSentinel
 
-ExplainSentinel is the **explainability extension** of FinSentinel:
+ExplainSentinel acts as the **explainability extension** of FinSentinel:
 
-| FinSentinel | ExplainSentinel |
-|---|---|
+| FinSentinel (Original Pipeline) | ExplainSentinel (This Project) |
+| --- | --- |
 | *What* sentiment does a headline carry? | *Why* did the model assign that sentiment? |
-| Pipeline-level output (GMSI, signal) | Token-level interpretability |
-| Research paper scope | NLP course submission + reproducible notebook |
+| Pipeline-level output (GMSI, signal) | Token-level model interpretability |
+| End-to-End Trading Research paper scope | NLP transparency & reproducible visualization |
 
-The FinBERT model and GDELT/NewsAPI pipeline from FinSentinel feed directly into ExplainSentinel's classifier.
-
----
-
-## Reproducibility
-
-All experiments are deterministic given fixed `num_samples` in LIME. No API keys required — Financial PhraseBank loads directly from HuggingFace. FinBERT weights download automatically on first run (~440MB).
+The FinBERT model and data pipelines implemented in FinSentinel feed directly into ExplainSentinel's architecture.
 
 ---
 
-## Author
+## 🧑‍💻 Author
 
 **Vaibhav Tiwari**  
-B.Tech AI & ML · VIT Bhopal University  
-📧 vaibhavtiwari159@gmail.com  
+*B.Tech AI & ML · VIT Bhopal University*  
+📧 [vaibhavtiwari159@gmail.com](mailto:vaibhavtiwari159@gmail.com)  
 🔗 [linkedin.com/in/vt004](https://linkedin.com/in/vt004) · 💻 [github.com/VT69](https://github.com/VT69)
