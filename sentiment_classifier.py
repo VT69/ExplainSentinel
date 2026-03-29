@@ -24,48 +24,52 @@ class FinBERTClassifier:
     def __init__(self, device: str = None):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         print(f"[FinBERT] Loading model on {self.device} ...")
+        
+        # Prevent PyTorch from spawning many CPU threads on tiny Streamlit cloud nodes (causes complete freeze)
+        if self.device == "cpu":
+            torch.set_num_threads(1)
+            
         self.tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
         self.model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
         self.model.to(self.device)
         self.model.eval()
         print("[FinBERT] Model loaded.")
 
-    def predict(self, texts: list[str]) -> list[dict]:
+    def predict(self, texts: list[str], batch_size: int = 8) -> list[dict]:
         """
-        Predict sentiment for a list of texts.
-
-        Returns:
-            List of dicts with keys: label, confidence, probabilities
+        Predict sentiment for a list of texts, internally batching to prevent OOM/freeze.
         """
         if isinstance(texts, str):
             texts = [texts]
 
-        inputs = self.tokenizer(
-            texts,
-            return_tensors="pt",
-            truncation=True,
-            padding=True,
-            max_length=128,
-        )
-        inputs = {k: v.to(self.device) for k, v in inputs.items()}
-
-        with torch.no_grad():
-            logits = self.model(**inputs).logits
-
-        probs = F.softmax(logits, dim=-1).cpu().numpy()
-
         results = []
-        for p in probs:
-            pred_idx = int(p.argmax())
-            results.append(
-                {
-                    "label": LABEL_MAP[pred_idx],
-                    "confidence": float(p[pred_idx]),
-                    "probabilities": {
-                        LABEL_MAP[i]: float(p[i]) for i in range(len(LABEL_MAP))
-                    },
-                }
+        for i in range(0, len(texts), batch_size):
+            batch_texts = texts[i:i + batch_size]
+            inputs = self.tokenizer(
+                batch_texts,
+                return_tensors="pt",
+                truncation=True,
+                padding=True,
+                max_length=128,
             )
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+
+            with torch.no_grad():
+                logits = self.model(**inputs).logits
+
+            probs = F.softmax(logits, dim=-1).cpu().numpy()
+
+            for p in probs:
+                pred_idx = int(p.argmax())
+                results.append(
+                    {
+                        "label": LABEL_MAP[pred_idx],
+                        "confidence": float(p[pred_idx]),
+                        "probabilities": {
+                            LABEL_MAP[k]: float(p[k]) for k in range(len(LABEL_MAP))
+                        },
+                    }
+                )
         return results
 
     def predict_proba_for_lime(self, texts: list[str]):
