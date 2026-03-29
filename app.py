@@ -52,9 +52,9 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## ⚙️ Settings")
-    num_features = st.slider("LIME tokens to highlight", 5, 20, 10)
-    num_samples  = st.slider("LIME perturbation samples", 100, 500, 300, step=50,
-                             help="More = stable but slower")
+    num_features = st.slider("LIME tokens to highlight", 5, 20, 8)
+    num_samples  = st.slider("LIME perturbation samples", 50, 300, 150, step=50,
+                             help="More = stable but slower. 150 is a good balance.")
     show_internals = st.toggle("🔬 Show full internals", value=True)
     st.markdown("---")
     st.markdown("🏠 [🔍 Analyser](/)")
@@ -68,6 +68,50 @@ def load_model():
     return FinBERTClassifier()
 
 clf = load_model()
+
+# ── Cached heavy computations ─────────────────────────────────────────────────
+@st.cache_data(show_spinner=False)
+def run_forward_pass(text: str):
+    """Run FinBERT forward pass (logits only). Cached per input text."""
+    import torch, torch.nn.functional as F
+    tokenizer = clf.tokenizer
+    encoding  = tokenizer(text, return_tensors="pt", truncation=True, max_length=128)
+    inputs    = {k: v.to(clf.device) for k, v in encoding.items()}
+    with torch.no_grad():
+        outputs = clf.model(**inputs)
+    logits   = outputs.logits[0].cpu()
+    probs_t  = F.softmax(logits, dim=-1).numpy()
+    token_ids = encoding["input_ids"][0].tolist()
+    tokens    = tokenizer.convert_ids_to_tokens(token_ids)
+    attn_mask = encoding["attention_mask"][0].tolist()
+    return {
+        "token_ids":  token_ids,
+        "tokens":     tokens,
+        "attn_mask":  attn_mask,
+        "logits":     logits.tolist(),
+        "probs":      probs_t.tolist(),
+    }
+
+@st.cache_data(show_spinner=False)
+def run_forward_with_attentions(text: str):
+    """Run FinBERT with attentions — only called when Step 3 is opened. Cached."""
+    import torch
+    tokenizer = clf.tokenizer
+    encoding  = tokenizer(text, return_tensors="pt", truncation=True, max_length=128)
+    inputs    = {k: v.to(clf.device) for k, v in encoding.items()}
+    with torch.no_grad():
+        outputs = clf.model(**inputs, output_attentions=True)
+    attentions = outputs.attentions  # tuple of (batch, heads, seq, seq)
+    if attentions is None or len(attentions) == 0:
+        return None
+    # Return last layer as a plain list (JSON-serialisable for cache)
+    return attentions[-1][0].cpu().numpy().tolist()  # (12, seq, seq)
+
+@st.cache_data(show_spinner=False)
+def cached_lime_explain(text: str, num_features: int, num_samples: int):
+    """Run LIME explanation. Cached per (text, num_features, num_samples)."""
+    from explainer import lime_explain
+    return lime_explain(clf, text, num_features=num_features, num_samples=num_samples)
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown('<p class="main-title">🔍 ExplainSentinel</p>', unsafe_allow_html=True)
@@ -104,66 +148,60 @@ run = st.button("🔍 Analyse", type="primary")
 if run and user_text.strip():
     text = user_text.strip()
 
-    # ── Step 1: Tokenisation ─────────────────────────────────────────────────
+    # ── Run cached inference up-front (runs once, served from cache thereafter) ─
+    with st.spinner("⏳ Running FinBERT..."):
+        fwd = run_forward_pass(text)
+
+    import numpy as np
+    LABEL_ORDER = ["Positive", "Negative", "Neutral"]
+    token_ids  = fwd["token_ids"]
+    tokens     = fwd["tokens"]
+    attn_mask  = fwd["attn_mask"]
+    logits_raw = fwd["logits"]
+    probs_list = fwd["probs"]
+    logit_map  = {LABEL_ORDER[i]: logits_raw[i] for i in range(3)}
+    probs_map  = {LABEL_ORDER[i]: probs_list[i] for i in range(3)}
+    pred_label = LABEL_ORDER[int(np.argmax(probs_list))]
+    pred_conf  = float(max(probs_list))
+    emoji_map  = {"Positive": "🟢", "Negative": "🔴", "Neutral": "⚪"}
+
+    # ── Section header ────────────────────────────────────────────────────────
     st.markdown("---")
     st.markdown("## 🔬 Under the Hood — Every Step")
 
+    # ── Step 1: Tokenisation ─────────────────────────────────────────────────
     with st.expander("**Step 1 · Tokenisation** — text → token IDs", expanded=show_internals):
         st.markdown('<div class="step-badge">BERT WORDPIECE TOKENIZER</div>', unsafe_allow_html=True)
-
-        tokenizer = clf.tokenizer
-        encoding  = tokenizer(text, return_tensors="pt", truncation=True, max_length=128)
-        token_ids  = encoding["input_ids"][0].tolist()
-        tokens     = tokenizer.convert_ids_to_tokens(token_ids)
-        attn_mask  = encoding["attention_mask"][0].tolist()
-
         st.markdown(f"**Input text:** `{text}`")
         st.markdown(f"**Sequence length:** `{len(token_ids)}` tokens (max 128)")
 
-        # Token table
         tok_df = pd.DataFrame({
-            "Position": list(range(len(tokens))),
-            "Token":    tokens,
-            "Token ID": token_ids,
+            "Position":  list(range(len(tokens))),
+            "Token":     tokens,
+            "Token ID":  token_ids,
             "Attn Mask": attn_mask,
-            "Special?": ["✅" if t in ["[CLS]","[SEP]","[PAD]"] else "" for t in tokens],
+            "Special?":  ["✅" if t in ["[CLS]", "[SEP]", "[PAD]"] else "" for t in tokens],
         })
         st.dataframe(tok_df, use_container_width=True, height=220)
 
-        # Visual token display
         token_html = ""
         for tok, tid in zip(tokens, token_ids):
             if tok == "[CLS]":
-                color = "#dbeafe"; tc = "#1d4ed8"
+                color, tc = "#dbeafe", "#1d4ed8"
             elif tok == "[SEP]":
-                color = "#fef9c3"; tc = "#854d0e"
+                color, tc = "#fef9c3", "#854d0e"
             elif tok.startswith("##"):
-                color = "#fce7f3"; tc = "#9d174d"
+                color, tc = "#fce7f3", "#9d174d"
             else:
-                color = "#f0fdf4"; tc = "#166534"
+                color, tc = "#f0fdf4", "#166534"
             token_html += (f'<span class="token-pill" style="background:{color};color:{tc};">'
                            f'{tok}<br><small style="opacity:.6">{tid}</small></span> ')
-
         st.markdown(f'<div style="line-height:3">{token_html}</div>', unsafe_allow_html=True)
         st.caption("🔵 [CLS] = classification token · 🟡 [SEP] = separator · 🩷 ## = subword continuation · 🟢 regular token")
 
-    # ── Step 2: BERT Encoding & Raw Logits ───────────────────────────────────
+    # ── Step 2: FinBERT Forward Pass ─────────────────────────────────────────
     with st.expander("**Step 2 · FinBERT Forward Pass** — logits & softmax", expanded=show_internals):
         st.markdown('<div class="step-badge">FINBERT CLASSIFICATION HEAD</div>', unsafe_allow_html=True)
-
-        import torch, torch.nn.functional as F
-
-        inputs = {k: v.to(clf.device) for k, v in encoding.items()}
-        with torch.no_grad():
-            outputs = clf.model(**inputs,
-                                output_attentions=True,
-                                output_hidden_states=True)
-        logits  = outputs.logits[0].cpu()
-        probs_t = F.softmax(logits, dim=-1).numpy()
-        LABEL_ORDER = ["Positive", "Negative", "Neutral"]
-        # FinBERT output order: positive=0, negative=1, neutral=2
-        probs_map = {LABEL_ORDER[i]: float(probs_t[i]) for i in range(3)}
-        logit_map = {LABEL_ORDER[i]: float(logits[i]) for i in range(3)}
 
         c1, c2, c3 = st.columns(3)
         for col, lbl in zip([c1, c2, c3], LABEL_ORDER):
@@ -171,44 +209,34 @@ if run and user_text.strip():
 
         st.markdown("**Softmax conversion** — `P = exp(logit) / Σ exp(logits)`")
 
-        # Logit → prob visual
-        fig_logit = go.Figure()
-        fig_logit.add_trace(go.Bar(
+        fig_logit = go.Figure(go.Bar(
             name="Raw Logit", x=LABEL_ORDER,
             y=[logit_map[l] for l in LABEL_ORDER],
-            marker_color=["#2ecc71","#e74c3c","#95a5a6"],
+            marker_color=["#2ecc71", "#e74c3c", "#95a5a6"],
             text=[f"{logit_map[l]:.4f}" for l in LABEL_ORDER],
             textposition="outside",
         ))
-        fig_logit.update_layout(title="Raw Logits (pre-softmax)",
-                                height=280, margin=dict(t=40,b=20,l=20,r=20),
-                                paper_bgcolor="rgba(0,0,0,0)",
-                                plot_bgcolor="rgba(248,250,252,1)")
+        fig_logit.update_layout(title="Raw Logits (pre-softmax)", height=280,
+                                margin=dict(t=40, b=20, l=20, r=20),
+                                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(248,250,252,1)")
         st.plotly_chart(fig_logit, use_container_width=True)
 
-        fig_prob = go.Figure()
-        fig_prob.add_trace(go.Bar(
+        fig_prob = go.Figure(go.Bar(
             name="Probability", x=LABEL_ORDER,
             y=[probs_map[l] for l in LABEL_ORDER],
-            marker_color=["#2ecc71","#e74c3c","#95a5a6"],
+            marker_color=["#2ecc71", "#e74c3c", "#95a5a6"],
             text=[f"{probs_map[l]:.4f}  ({probs_map[l]:.1%})" for l in LABEL_ORDER],
             textposition="outside",
         ))
         fig_prob.update_layout(title="Probabilities after Softmax",
-                               yaxis=dict(range=[0,1.1], tickformat=".0%"),
-                               height=280, margin=dict(t=40,b=20,l=20,r=20),
-                               paper_bgcolor="rgba(0,0,0,0)",
-                               plot_bgcolor="rgba(248,250,252,1)")
+                               yaxis=dict(range=[0, 1.1], tickformat=".0%"),
+                               height=280, margin=dict(t=40, b=20, l=20, r=20),
+                               paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(248,250,252,1)")
         st.plotly_chart(fig_prob, use_container_width=True)
 
-        pred_label = LABEL_ORDER[int(probs_t.argmax())]
-        pred_conf  = float(probs_t.max())
-        emoji_map  = {"Positive":"🟢","Negative":"🔴","Neutral":"⚪"}
         st.success(f"**Prediction:** {emoji_map[pred_label]} **{pred_label}**  —  "
                    f"confidence `{pred_conf:.4f}` ({pred_conf:.1%})")
 
-        # Exact numbers table
-        st.markdown("**Exact numerical output from FinBERT:**")
         num_df = pd.DataFrame({
             "Label":       LABEL_ORDER,
             "Raw Logit":   [f"{logit_map[l]:.6f}" for l in LABEL_ORDER],
@@ -219,33 +247,30 @@ if run and user_text.strip():
         })
         st.dataframe(num_df, use_container_width=True, hide_index=True)
 
+    # ── Step 3: Attention Heatmap (separate cached pass) ─────────────────────
     with st.expander("**Step 3 · Attention Weights** — what the model attends to", expanded=show_internals):
         st.markdown('<div class="step-badge">BERT SELF-ATTENTION · LAST LAYER · HEAD 0</div>', unsafe_allow_html=True)
-        st.markdown("Each cell shows how much token **i** attends to token **j**. "
-                    "Brighter = stronger attention.")
+        st.markdown("Each cell shows how much token **i** attends to token **j**. Brighter = stronger attention.")
 
-        if outputs.attentions is None or len(outputs.attentions) == 0:
-            st.warning("⚠️ Attention weights not available — the model did not return them. "
-                       "This can happen with certain transformers versions on Streamlit Cloud.")
+        with st.spinner("Loading attention weights..."):
+            attn_data = run_forward_with_attentions(text)  # cached separately
+
+        if attn_data is None:
+            st.warning("⚠️ Attention weights not available on this environment.")
         else:
-            # Last layer, head 0
-            attn = outputs.attentions[-1][0][0].cpu().numpy()  # (seq, seq)
-            seq_len = min(len(tokens), 20)
+            import numpy as np
+            attn = np.array(attn_data[0])  # head 0, shape (seq, seq)
+            seq_len  = min(len(tokens), 20)
             attn_sub = attn[:seq_len, :seq_len]
             tok_sub  = tokens[:seq_len]
 
-            fig_attn = px.imshow(
-                attn_sub,
-                x=tok_sub, y=tok_sub,
-                color_continuous_scale="Blues",
-                aspect="auto",
-                title="Self-Attention Heatmap (Layer 12, Head 0)",
-                labels=dict(x="Key Token", y="Query Token", color="Weight"),
-            )
-            fig_attn.update_layout(height=420, margin=dict(t=50,b=20,l=20,r=20))
+            fig_attn = px.imshow(attn_sub, x=tok_sub, y=tok_sub,
+                                 color_continuous_scale="Blues", aspect="auto",
+                                 title="Self-Attention Heatmap (Layer 12, Head 0)",
+                                 labels=dict(x="Key Token", y="Query Token", color="Weight"))
+            fig_attn.update_layout(height=420, margin=dict(t=50, b=20, l=20, r=20))
             st.plotly_chart(fig_attn, use_container_width=True)
 
-            # CLS attention (what CLS looks at — drives classification)
             cls_attn = attn[0, :seq_len]
             fig_cls = go.Figure(go.Bar(
                 x=tok_sub, y=cls_attn,
@@ -255,16 +280,15 @@ if run and user_text.strip():
             fig_cls.update_layout(
                 title="[CLS] Token Attention — drives the classification decision",
                 xaxis_title="Token", yaxis_title="Attention Weight",
-                height=280, margin=dict(t=40,b=20,l=20,r=20),
+                height=280, margin=dict(t=40, b=20, l=20, r=20),
                 paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(248,250,252,1)",
             )
             st.plotly_chart(fig_cls, use_container_width=True)
 
-    # ── Step 4: LIME Explainability ───────────────────────────────────────────
+    # ── Step 4: LIME (fully cached) ──────────────────────────────────────────
     with st.expander("**Step 4 · LIME Explainability** — which words drove the prediction", expanded=show_internals):
         st.markdown('<div class="step-badge">LOCAL INTERPRETABLE MODEL-AGNOSTIC EXPLANATIONS</div>',
                     unsafe_allow_html=True)
-
         st.markdown(f"""
         LIME works by **perturbing** the input `{num_samples}` times — randomly masking words —
         and re-running FinBERT each time. It then fits a **local linear model** to approximate
@@ -273,12 +297,11 @@ if run and user_text.strip():
         """)
 
         with st.spinner(f"Running LIME ({num_samples} perturbations)..."):
-            lime_result = lime_explain(clf, text, num_features=num_features, num_samples=num_samples)
+            lime_result = cached_lime_explain(text, num_features, num_samples)
 
         token_weights = lime_result["token_weights"]
-
-        # Highlighted text
         highlight_html = build_highlight_html(token_weights)
+
         st.markdown("**Word-level highlights:**")
         st.markdown(
             f'<div style="font-size:1.15rem;line-height:2.4;padding:0.8rem;'
@@ -288,7 +311,6 @@ if run and user_text.strip():
         )
         st.caption("🟢 Green = pushes toward prediction · 🔴 Red = pushes against · intensity ∝ weight")
 
-        # Weight bar chart
         tokens_l  = [t for t, _ in token_weights]
         weights_l = [w for _, w in token_weights]
         colors_l  = ["#2ecc71" if w > 0 else "#e74c3c" for w in weights_l]
@@ -300,19 +322,18 @@ if run and user_text.strip():
         ))
         fig_lime.update_layout(
             title=f"LIME Feature Weights → '{pred_label}' prediction",
-            xaxis_title="Weight", height=max(300, 30*len(tokens_l)+80),
-            margin=dict(l=20,r=60,t=40,b=20),
+            xaxis_title="Weight", height=max(300, 30 * len(tokens_l) + 80),
+            margin=dict(l=20, r=60, t=40, b=20),
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(248,250,252,1)",
             yaxis=dict(autorange="reversed"),
         )
         st.plotly_chart(fig_lime, use_container_width=True)
 
-        # LIME weights table
         lime_df = pd.DataFrame({
-            "Word":       tokens_l,
+            "Word":        tokens_l,
             "LIME Weight": [f"{w:+.6f}" for w in weights_l],
-            "Direction":  ["✅ Supports" if w > 0 else "❌ Opposes" for w in weights_l],
-            "Abs Impact": [f"{abs(w):.4f}" for w in weights_l],
+            "Direction":   ["✅ Supports" if w > 0 else "❌ Opposes" for w in weights_l],
+            "Abs Impact":  [f"{abs(w):.4f}" for w in weights_l],
         })
         st.dataframe(lime_df, use_container_width=True, hide_index=True)
 
