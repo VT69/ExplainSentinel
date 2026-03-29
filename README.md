@@ -4,10 +4,12 @@
 *An NLP project built on top of [FinSentinel](https://github.com/VT69/FinSentinel)*
 
 [![Python](https://img.shields.io/badge/Python-3.11-3b82f6?style=flat-square&logo=python)](https://python.org)
-[![Streamlit](https://img.shields.io/badge/Streamlit-App-FF4B4B?style=flat-square&logo=streamlit)](https://streamlit.io/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-App-FF4B4B?style=flat-square&logo=streamlit)](https://explainsentinel.streamlit.app/)
 [![Model](https://img.shields.io/badge/Model-ProsusAI%2FFinBERT-10b981?style=flat-square)](https://huggingface.co/ProsusAI/finbert)
 ![Explainability](https://img.shields.io/badge/XAI-LIME%20%2B%20Attention%20Heatmaps-f59e0b?style=flat-square)
 [![Dataset](https://img.shields.io/badge/Dataset-Financial%20PhraseBank-6366f1?style=flat-square)](https://huggingface.co/datasets/financial_phrasebank)
+
+**🚀 Try the live application here:** [https://explainsentinel.streamlit.app/](https://explainsentinel.streamlit.app/)
 
 ---
 
