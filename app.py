@@ -112,10 +112,8 @@ def cached_lime_explain(_clf, text: str, num_features: int, num_samples: int):
     """Run LIME explanation. Cached per (text, num_features, num_samples)."""
     from explainer import lime_explain
     res = lime_explain(_clf, text, num_features=num_features, num_samples=num_samples)
-    # ONLY return serialisable primitives so Streamlit cache doesn't choke on LimeTextExplainer objects
     return {
         "token_weights": res["token_weights"],
-        "lime_html": res["lime_exp"].as_html(),
     }
 
 # ── Header ────────────────────────────────────────────────────────────────────
@@ -341,9 +339,6 @@ if run and user_text.strip():
             "Abs Impact":  [f"{abs(w):.4f}" for w in weights_l],
         })
         st.dataframe(lime_df, use_container_width=True, hide_index=True)
-
-        with st.expander("🔬 Full LIME HTML Report"):
-            st.components.v1.html(lime_result["lime_html"], height=400, scrolling=True)
 
     # ── Step 5: Summary ───────────────────────────────────────────────────────
     st.markdown("---")
