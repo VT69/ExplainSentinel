@@ -57,8 +57,8 @@ with st.sidebar:
                              help="More = stable but slower")
     show_internals = st.toggle("🔬 Show full internals", value=True)
     st.markdown("---")
-    st.page_link("app.py", label="🔍 Analyser", icon="🏠")
-    st.page_link("pages/explanation.py", label="📖 How it works", icon="📖")
+    st.markdown("🏠 [🔍 Analyser](/)")
+    st.markdown("📖 [How it works](/explanation)")
     st.markdown("---")
     st.caption("Model: ProsusAI/finbert\nDataset: Financial PhraseBank\nXAI: LIME")
 
