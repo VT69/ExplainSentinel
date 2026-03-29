@@ -71,14 +71,14 @@ clf = load_model()
 
 # ── Cached heavy computations ─────────────────────────────────────────────────
 @st.cache_data(show_spinner=False)
-def run_forward_pass(text: str):
+def run_forward_pass(_clf, text: str):
     """Run FinBERT forward pass (logits only). Cached per input text."""
     import torch, torch.nn.functional as F
-    tokenizer = clf.tokenizer
+    tokenizer = _clf.tokenizer
     encoding  = tokenizer(text, return_tensors="pt", truncation=True, max_length=128)
-    inputs    = {k: v.to(clf.device) for k, v in encoding.items()}
+    inputs    = {k: v.to(_clf.device) for k, v in encoding.items()}
     with torch.no_grad():
-        outputs = clf.model(**inputs)
+        outputs = _clf.model(**inputs)
     logits   = outputs.logits[0].cpu()
     probs_t  = F.softmax(logits, dim=-1).numpy()
     token_ids = encoding["input_ids"][0].tolist()
@@ -93,14 +93,14 @@ def run_forward_pass(text: str):
     }
 
 @st.cache_data(show_spinner=False)
-def run_forward_with_attentions(text: str):
+def run_forward_with_attentions(_clf, text: str):
     """Run FinBERT with attentions — only called when Step 3 is opened. Cached."""
     import torch
-    tokenizer = clf.tokenizer
+    tokenizer = _clf.tokenizer
     encoding  = tokenizer(text, return_tensors="pt", truncation=True, max_length=128)
-    inputs    = {k: v.to(clf.device) for k, v in encoding.items()}
+    inputs    = {k: v.to(_clf.device) for k, v in encoding.items()}
     with torch.no_grad():
-        outputs = clf.model(**inputs, output_attentions=True)
+        outputs = _clf.model(**inputs, output_attentions=True)
     attentions = outputs.attentions  # tuple of (batch, heads, seq, seq)
     if attentions is None or len(attentions) == 0:
         return None
@@ -108,10 +108,15 @@ def run_forward_with_attentions(text: str):
     return attentions[-1][0].cpu().numpy().tolist()  # (12, seq, seq)
 
 @st.cache_data(show_spinner=False)
-def cached_lime_explain(text: str, num_features: int, num_samples: int):
+def cached_lime_explain(_clf, text: str, num_features: int, num_samples: int):
     """Run LIME explanation. Cached per (text, num_features, num_samples)."""
     from explainer import lime_explain
-    return lime_explain(clf, text, num_features=num_features, num_samples=num_samples)
+    res = lime_explain(_clf, text, num_features=num_features, num_samples=num_samples)
+    # ONLY return serialisable primitives so Streamlit cache doesn't choke on LimeTextExplainer objects
+    return {
+        "token_weights": res["token_weights"],
+        "lime_html": res["lime_exp"].as_html(),
+    }
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.markdown('<p class="main-title">🔍 ExplainSentinel</p>', unsafe_allow_html=True)
@@ -150,7 +155,7 @@ if run and user_text.strip():
 
     # ── Run cached inference up-front (runs once, served from cache thereafter) ─
     with st.spinner("⏳ Running FinBERT..."):
-        fwd = run_forward_pass(text)
+        fwd = run_forward_pass(clf, text)
 
     import numpy as np
     LABEL_ORDER = ["Positive", "Negative", "Neutral"]
@@ -253,7 +258,7 @@ if run and user_text.strip():
         st.markdown("Each cell shows how much token **i** attends to token **j**. Brighter = stronger attention.")
 
         with st.spinner("Loading attention weights..."):
-            attn_data = run_forward_with_attentions(text)  # cached separately
+            attn_data = run_forward_with_attentions(clf, text)  # cached separately
 
         if attn_data is None:
             st.warning("⚠️ Attention weights not available on this environment.")
@@ -297,7 +302,7 @@ if run and user_text.strip():
         """)
 
         with st.spinner(f"Running LIME ({num_samples} perturbations)..."):
-            lime_result = cached_lime_explain(text, num_features, num_samples)
+            lime_result = cached_lime_explain(clf, text, num_features, num_samples)
 
         token_weights = lime_result["token_weights"]
         highlight_html = build_highlight_html(token_weights)
@@ -338,7 +343,7 @@ if run and user_text.strip():
         st.dataframe(lime_df, use_container_width=True, hide_index=True)
 
         with st.expander("🔬 Full LIME HTML Report"):
-            st.components.v1.html(lime_result["lime_exp"].as_html(), height=400, scrolling=True)
+            st.components.v1.html(lime_result["lime_html"], height=400, scrolling=True)
 
     # ── Step 5: Summary ───────────────────────────────────────────────────────
     st.markdown("---")
