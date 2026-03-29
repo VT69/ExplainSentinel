@@ -159,7 +159,7 @@ if run_btn and user_text.strip():
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     # ── Token explanation ─────────────────────────────────────────────────
     st.markdown("### 🧩 Token-Level Explanation (LIME)")
@@ -203,7 +203,7 @@ if run_btn and user_text.strip():
         plot_bgcolor="rgba(248,249,250,1)",
         yaxis=dict(autorange="reversed"),
     )
-    st.plotly_chart(fig2, use_container_width=True)
+    st.plotly_chart(fig2, width='stretch')
 
     # ── Raw LIME HTML export ──────────────────────────────────────────────
     with st.expander("🔬 Full LIME Report (HTML)"):
@@ -238,7 +238,7 @@ with st.expander("📋 Batch Sentiment Analysis (no explainability)"):
                     for t, r in zip(lines, batch_results)
                 ]
             )
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(df, width='stretch')
         else:
             st.warning("No valid headlines found.")
 
