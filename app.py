@@ -154,11 +154,10 @@ if run and user_text.strip():
         import torch, torch.nn.functional as F
 
         inputs = {k: v.to(clf.device) for k, v in encoding.items()}
-        # Force attentions at config level (some transformers versions ignore call kwarg)
-        clf.model.config.output_attentions = True
-        clf.model.config.output_hidden_states = True
         with torch.no_grad():
-            outputs = clf.model(**inputs)
+            outputs = clf.model(**inputs,
+                                output_attentions=True,
+                                output_hidden_states=True)
         logits  = outputs.logits[0].cpu()
         probs_t = F.softmax(logits, dim=-1).numpy()
         LABEL_ORDER = ["Positive", "Negative", "Neutral"]
