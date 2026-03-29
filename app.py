@@ -154,8 +154,11 @@ if run and user_text.strip():
         import torch, torch.nn.functional as F
 
         inputs = {k: v.to(clf.device) for k, v in encoding.items()}
+        # Force attentions at config level (some transformers versions ignore call kwarg)
+        clf.model.config.output_attentions = True
+        clf.model.config.output_hidden_states = True
         with torch.no_grad():
-            outputs = clf.model(**inputs, output_attentions=True, output_hidden_states=True)
+            outputs = clf.model(**inputs)
         logits  = outputs.logits[0].cpu()
         probs_t = F.softmax(logits, dim=-1).numpy()
         LABEL_ORDER = ["Positive", "Negative", "Neutral"]
@@ -217,43 +220,46 @@ if run and user_text.strip():
         })
         st.dataframe(num_df, use_container_width=True, hide_index=True)
 
-    # ── Step 3: Attention Heatmap ─────────────────────────────────────────────
     with st.expander("**Step 3 · Attention Weights** — what the model attends to", expanded=show_internals):
         st.markdown('<div class="step-badge">BERT SELF-ATTENTION · LAST LAYER · HEAD 0</div>', unsafe_allow_html=True)
         st.markdown("Each cell shows how much token **i** attends to token **j**. "
                     "Brighter = stronger attention.")
 
-        # Last layer, head 0, CLS row
-        attn = outputs.attentions[-1][0][0].cpu().numpy()  # (seq, seq)
-        seq_len = min(len(tokens), 20)
-        attn_sub = attn[:seq_len, :seq_len]
-        tok_sub  = tokens[:seq_len]
+        if outputs.attentions is None or len(outputs.attentions) == 0:
+            st.warning("⚠️ Attention weights not available — the model did not return them. "
+                       "This can happen with certain transformers versions on Streamlit Cloud.")
+        else:
+            # Last layer, head 0
+            attn = outputs.attentions[-1][0][0].cpu().numpy()  # (seq, seq)
+            seq_len = min(len(tokens), 20)
+            attn_sub = attn[:seq_len, :seq_len]
+            tok_sub  = tokens[:seq_len]
 
-        fig_attn = px.imshow(
-            attn_sub,
-            x=tok_sub, y=tok_sub,
-            color_continuous_scale="Blues",
-            aspect="auto",
-            title="Self-Attention Heatmap (Layer 12, Head 0)",
-            labels=dict(x="Key Token", y="Query Token", color="Weight"),
-        )
-        fig_attn.update_layout(height=420, margin=dict(t=50,b=20,l=20,r=20))
-        st.plotly_chart(fig_attn, use_container_width=True)
+            fig_attn = px.imshow(
+                attn_sub,
+                x=tok_sub, y=tok_sub,
+                color_continuous_scale="Blues",
+                aspect="auto",
+                title="Self-Attention Heatmap (Layer 12, Head 0)",
+                labels=dict(x="Key Token", y="Query Token", color="Weight"),
+            )
+            fig_attn.update_layout(height=420, margin=dict(t=50,b=20,l=20,r=20))
+            st.plotly_chart(fig_attn, use_container_width=True)
 
-        # CLS attention (what CLS looks at — drives classification)
-        cls_attn = attn[0, :seq_len]
-        fig_cls = go.Figure(go.Bar(
-            x=tok_sub, y=cls_attn,
-            marker_color=px.colors.sequential.Blues[3:],
-            text=[f"{v:.3f}" for v in cls_attn], textposition="outside",
-        ))
-        fig_cls.update_layout(
-            title="[CLS] Token Attention — drives the classification decision",
-            xaxis_title="Token", yaxis_title="Attention Weight",
-            height=280, margin=dict(t=40,b=20,l=20,r=20),
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(248,250,252,1)",
-        )
-        st.plotly_chart(fig_cls, use_container_width=True)
+            # CLS attention (what CLS looks at — drives classification)
+            cls_attn = attn[0, :seq_len]
+            fig_cls = go.Figure(go.Bar(
+                x=tok_sub, y=cls_attn,
+                marker_color=px.colors.sequential.Blues[3:],
+                text=[f"{v:.3f}" for v in cls_attn], textposition="outside",
+            ))
+            fig_cls.update_layout(
+                title="[CLS] Token Attention — drives the classification decision",
+                xaxis_title="Token", yaxis_title="Attention Weight",
+                height=280, margin=dict(t=40,b=20,l=20,r=20),
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(248,250,252,1)",
+            )
+            st.plotly_chart(fig_cls, use_container_width=True)
 
     # ── Step 4: LIME Explainability ───────────────────────────────────────────
     with st.expander("**Step 4 · LIME Explainability** — which words drove the prediction", expanded=show_internals):
