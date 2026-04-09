@@ -5,8 +5,8 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11-3b82f6?style=flat-square&logo=python)](https://python.org)
 [![Streamlit](https://img.shields.io/badge/Streamlit-App-FF4B4B?style=flat-square&logo=streamlit)](https://explainsentinel.streamlit.app/)
-[![Model](https://img.shields.io/badge/Model-ProsusAI%2FFinBERT-10b981?style=flat-square)](https://huggingface.co/ProsusAI/finbert)
-![Explainability](https://img.shields.io/badge/XAI-LIME%20%2B%20Attention%20Heatmaps-f59e0b?style=flat-square)
+[![Model](https://img.shields.io/badge/Model-ProsusAI%2FFinBERT%20%2B%20BiLSTM-10b981?style=flat-square)](https://huggingface.co/ProsusAI/finbert)
+![Explainability](https://img.shields.io/badge/XAI-LIME%20%2B%20LSTM%20Attribution-f59e0b?style=flat-square)
 [![Dataset](https://img.shields.io/badge/Dataset-Financial%20PhraseBank-6366f1?style=flat-square)](https://huggingface.co/datasets/financial_phrasebank)
 
 **🚀 Try the live application here:** [https://explainsentinel.streamlit.app/](https://explainsentinel.streamlit.app/)
@@ -19,7 +19,9 @@ FinSentinel showed that sentiment signals carry weak but statistically significa
 
 > **Which words actually drive these sentiment predictions, and how much do we trust the model?**
 
-ExplainSentinel answers this by adding a **token-level explainability layer** on top of FinBERT using **LIME** (Local Interpretable Model-agnostic Explanations) alongside internal **Attention Heatmaps**, deployed as an interactive, highly-optimized Streamlit web app.
+ExplainSentinel answers this by adding a **token-level explainability layer** to a custom **FinBERT + Bi-LSTM Hybrid Architecture**. It uses **LIME** (Local Interpretable Model-agnostic Explanations) alongside **LSTM Token Attribution** to surface the exact words driving predictions, deployed as an interactive, highly-optimized Streamlit web app.
+
+Instead of relying solely on the single `[CLS]` token for classification, our hybrid model feeds FinBERT's raw token embeddings into a **Bidirectional LSTM**, capturing sequential context. The two signals are fused via a **learnable scalar (α)**, providing superior robustness.
 
 ---
 
@@ -29,12 +31,14 @@ The ExplainSentinel interactive dashboard breaks down every aspect of a predicti
 
 1. **Step 1: NLP Tokenisation**
    Displays the exact BERT WordPiece tokens, sub-words (`##`), IDs, and internal attention masks generated from the input text.
-2. **Step 2: FinBERT Forward Pass**
-   Visualizes the raw classification logits extracted directly from the classification head and charts the softmax probability conversion for `Positive`, `Negative`, and `Neutral` labels.
+2. **Step 2: Dual Head Forward Pass**
+   Visualizes the raw logits and softmax probabilities from *both* the FinBERT `[CLS]` head and the Bi-LSTM head, evaluating the sequences simultaneously.
 3. **Step 3: Attention Weight Heatmaps**
-   Extracts layer-12 representations to plot an interactive 2D heatmap of Self-Attention. Shows precisely which tokens the `[CLS]` classification token is paying attention to in order to make a decision.
-4. **Step 4: LIME Explainability**
-   Runs a localized perturbation test (~150 inferences) to build an exact word-by-word visual breakdown. Green words support the prediction, while Red words push against it.
+   Extracts layer-12 representations to plot an interactive 2D heatmap of Self-Attention from the FinBERT encoder.
+4. **Step 4: LIME Explainability + LSTM Attribution**
+   Runs a localized perturbation test to build an exact LIME word-by-word visual breakdown. Independently, calculates the L2 norm of the Bi-LSTM hidden states (`‖h_t‖`) to generate a second, complementary token-attribution signal. Includes an agreement analysis panel.
+5. **Step 5: Learned Fusion Decision**
+   Charts the final probability blending `P_fused = α·P_fb + (1-α)·P_lstm` where `α` is heavily optimized during training.
 
 ---
 
@@ -45,11 +49,12 @@ ExplainSentinel/
 ├── app.py                    # Main Streamlit Dashboard (Analyser)
 ├── pages/
 │   └── explanation.py        # Streamlit page detailing how the tech works
-├── sentiment_classifier.py   # OOM-safe FinBERT inference wrapper
-├── explainer.py              # LIME perturbation & plotting logic 
+├── lstm_model.py             # 🧠 Bi-LSTM classification head + Fusion Module
+├── train_lstm.py             # 🏋️ Training script for the hybrid system
+├── sentiment_classifier.py   # Wrapper for Hybrid (FinBERT + LSTM) and pure FinBERT
+├── explainer.py              # LIME perturbation & LSTM Token Attribution logic
 ├── evaluate.py               # Evaluation benchmark on Financial PhraseBank
-├── requirements.txt          # Python dependencies
-└── outputs/                  # Auto-generated charts & metrics (after eval)
+└── requirements.txt          # Python dependencies
 ```
 
 ---
@@ -66,7 +71,12 @@ cd ExplainSentinel
 # 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Launch the Analyzer Web App
+# 3. (Optional but recommended) Train the LSTM Head
+# Downloads FinBERT embeddings and trains the Bi-LSTM in ~5-10 minutes on CPU.
+# Generates lstm_weights.pt. If skipped, the app gracefully falls back to FinBERT-only mode.
+python train_lstm.py
+
+# 4. Launch the Analyzer Web App
 streamlit run app.py
 ```
 
