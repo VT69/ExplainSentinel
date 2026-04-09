@@ -53,10 +53,12 @@ with st.sidebar:
 - [Overview](#overview)
 - [Dataset](#dataset)
 - [FinBERT Architecture](#finbert)
+- [Bi-LSTM + Fusion](#bilstm)
 - [Pipeline Flow](#pipeline)
 - [Tokenisation](#tokenisation)
 - [Softmax Math](#softmax)
 - [LIME XAI](#lime)
+- [LSTM Attribution](#lstm-attribution)
 - [Evaluation](#evaluation)
 - [Connection to FinSentinel](#finsentinel)
     """)
@@ -79,12 +81,15 @@ with col1:
     st.markdown("""
 ExplainSentinel answers two questions for any financial headline:
 
-1. **What** sentiment does this text carry? *(FinBERT)*
-2. **Why** did the model assign that sentiment? *(LIME)*
+1. **What** sentiment does this text carry? *(FinBERT + Bi-LSTM Hybrid)*
+2. **Why** did the model assign that sentiment? *(LIME + LSTM Token Attribution)*
 
 Most NLP sentiment tools are black boxes — they output a label with no justification.
-ExplainSentinel adds a **token-level explainability layer** that surfaces the exact words
-driving the prediction, along with the raw model numbers (logits, probabilities) at every step.
+ExplainSentinel uses a **hybrid architecture** — FinBERT's transformer encoder provides
+token embeddings that feed into both FinBERT's own [CLS] classification head and a
+**Bidirectional LSTM** head simultaneously. Their outputs are blended via a **learned
+fusion scalar α**, and the combined system is explained through two independent
+attribution methods.
 
 It is built as the **explainability extension** of
 [FinSentinel](https://github.com/VT69/FinSentinel),
@@ -94,12 +99,15 @@ predictive value over price-based baselines.
 
 with col2:
     # Summary metrics
-    metrics = {"Model":"ProsusAI/finbert","Classes":"3 (Pos/Neg/Neu)",
+    metrics = {"Model":"ProsusAI/finbert + Bi-LSTM","Classes":"3 (Pos/Neg/Neu)",
                "Dataset":"Financial PhraseBank","Samples":"~2,264",
-               "Accuracy":"~87.5%","Macro F1":"~86.0%","XAI Method":"LIME",
+               "Accuracy":"~87.5%","Macro F1":"~86.0%",
+               "DL Head":"2-layer Bi-LSTM (256 hidden)",
+               "Fusion":"Learned α (trainable)",
+               "XAI Methods":"LIME + LSTM Attribution",
                "Perturbations":"300 (default)"}
     mdf = pd.DataFrame(list(metrics.items()), columns=["Field","Value"])
-    st.dataframe(mdf, use_container_width=True, hide_index=True, height=310)
+    st.dataframe(mdf, use_container_width=True, hide_index=True, height=350)
 
 # ═══════════════════════════════════════════════════════════════════
 # 2. DATASET
@@ -236,10 +244,188 @@ with col2:
     st.plotly_chart(fig_arch, use_container_width=True)
 
 # ═══════════════════════════════════════════════════════════════════
+# 3b. BI-LSTM + FUSION ARCHITECTURE
+# ═══════════════════════════════════════════════════════════════════
+st.markdown('<a name="bilstm"></a>', unsafe_allow_html=True)
+st.markdown('<p class="section-hdr">3b · Bi-LSTM Head + Learned Fusion</p>', unsafe_allow_html=True)
+
+col1, col2 = st.columns([1.2, 1])
+with col1:
+    st.markdown("""
+**Why add an LSTM alongside FinBERT?**
+
+FinBERT's classification uses only the `[CLS]` token's final hidden state — a single
+768-d vector that pools the entire sequence. This works well, but discards the
+**per-token sequential structure** that a recurrent model can exploit.
+
+The Bi-LSTM reads the **full token embedding sequence** `(seq_len × 768)` from
+FinBERT's frozen encoder and produces its own 3-class probability distribution.
+This is a genuine second classification signal, not just a wrapper.
+
+**Architecture details:**
+
+| Component | Specification |
+|---|---|
+| Input | `last_hidden_state` from FinBERT encoder (seq_len × 768) |
+| LSTM | 2-layer Bidirectional, hidden_dim=256 → output 512 per token |
+| Dropout | 0.3 between layers |
+| Classifier | Linear(512 → 3) on concatenated final hidden states |
+| Trainable params | ~5M (vs 110M in frozen FinBERT) |
+
+**Why Bi-directional?**
+Financial headlines often have sentiment that depends on context from both sides:
+- *"RBI **cuts** GDP forecast"* → **Negative** (cuts = reduction)
+- *"company **cuts** ribbon at new plant"* → **Neutral** (cuts = inaugurates)
+
+Bidirectional processing reads left-to-right **and** right-to-left simultaneously,
+capturing both-direction context that unidirectional LSTM misses.
+
+**Why freeze FinBERT?**
+Fine-tuning 110M parameters requires GPU + significant memory.
+Freezing the encoder and training only the LSTM (~5M params) + fusion scalar (1 param)
+is tractable on CPU in ~10 minutes.
+    """)
+
+with col2:
+    # Hybrid architecture diagram
+    hybrid_layers = [
+        ("Input Headline", "#dbeafe", "#1e40af"),
+        ("BERT Tokenizer", "#e0f2fe", "#0369a1"),
+        ("FinBERT Encoder (FROZEN)", "#f0fdf4", "#166534"),
+        ("last_hidden_state (seq × 768)", "#fef9c3", "#854d0e"),
+    ]
+    left_layers = [
+        ("[CLS] → Linear(768→3)", "#f3e8ff", "#6b21a8"),
+        ("P_finbert (Pos,Neg,Neu)", "#f3e8ff", "#6b21a8"),
+    ]
+    right_layers = [
+        ("Bi-LSTM (2-layer, 256)", "#dbeafe", "#1e40af"),
+        ("P_lstm (Pos,Neg,Neu)", "#dbeafe", "#1e40af"),
+    ]
+    fusion_layers = [
+        ("Learned Fusion: α·P_fb + (1-α)·P_lstm", "#fef9c3", "#854d0e"),
+        ("P_fused → argmax → Label", "#dcfce7", "#166534"),
+    ]
+
+    fig_hybrid = go.Figure()
+    # Top shared layers
+    for i, (name, bg, tc) in enumerate(hybrid_layers):
+        y = 10 - i
+        fig_hybrid.add_shape(type="rect", x0=0.1, x1=0.9, y0=y-0.38, y1=y+0.38,
+            fillcolor=bg, line_color=tc, line_width=1.5)
+        fig_hybrid.add_annotation(x=0.5, y=y, text=f"<b>{name}</b>",
+            showarrow=False, font=dict(color=tc, size=10))
+        if i < len(hybrid_layers)-1:
+            fig_hybrid.add_annotation(x=0.5, y=y-0.44, text="↓",
+                showarrow=False, font=dict(color="#94a3b8", size=13))
+
+    # Split arrows
+    fig_hybrid.add_annotation(x=0.3, y=5.5, text="↙", showarrow=False, font=dict(color="#94a3b8", size=16))
+    fig_hybrid.add_annotation(x=0.7, y=5.5, text="↘", showarrow=False, font=dict(color="#94a3b8", size=16))
+
+    # Left branch (FinBERT head)
+    for i, (name, bg, tc) in enumerate(left_layers):
+        y = 5.0 - i
+        fig_hybrid.add_shape(type="rect", x0=0.02, x1=0.48, y0=y-0.35, y1=y+0.35,
+            fillcolor=bg, line_color=tc, line_width=1.5)
+        fig_hybrid.add_annotation(x=0.25, y=y, text=f"<b>{name}</b>",
+            showarrow=False, font=dict(color=tc, size=9))
+        if i < len(left_layers)-1:
+            fig_hybrid.add_annotation(x=0.25, y=y-0.4, text="↓",
+                showarrow=False, font=dict(color="#94a3b8", size=13))
+
+    # Right branch (LSTM head)
+    for i, (name, bg, tc) in enumerate(right_layers):
+        y = 5.0 - i
+        fig_hybrid.add_shape(type="rect", x0=0.52, x1=0.98, y0=y-0.35, y1=y+0.35,
+            fillcolor=bg, line_color=tc, line_width=1.5)
+        fig_hybrid.add_annotation(x=0.75, y=y, text=f"<b>{name}</b>",
+            showarrow=False, font=dict(color=tc, size=9))
+        if i < len(right_layers)-1:
+            fig_hybrid.add_annotation(x=0.75, y=y-0.4, text="↓",
+                showarrow=False, font=dict(color="#94a3b8", size=13))
+
+    # Merge arrows
+    fig_hybrid.add_annotation(x=0.3, y=3.2, text="↘", showarrow=False, font=dict(color="#94a3b8", size=16))
+    fig_hybrid.add_annotation(x=0.7, y=3.2, text="↙", showarrow=False, font=dict(color="#94a3b8", size=16))
+
+    # Fusion layers
+    for i, (name, bg, tc) in enumerate(fusion_layers):
+        y = 2.8 - i
+        fig_hybrid.add_shape(type="rect", x0=0.1, x1=0.9, y0=y-0.35, y1=y+0.35,
+            fillcolor=bg, line_color=tc, line_width=1.5)
+        fig_hybrid.add_annotation(x=0.5, y=y, text=f"<b>{name}</b>",
+            showarrow=False, font=dict(color=tc, size=10))
+        if i < len(fusion_layers)-1:
+            fig_hybrid.add_annotation(x=0.5, y=y-0.4, text="↓",
+                showarrow=False, font=dict(color="#94a3b8", size=13))
+
+    fig_hybrid.update_layout(
+        title="FinBERT + Bi-LSTM Hybrid Architecture",
+        height=520,
+        xaxis=dict(visible=False, range=[0, 1]),
+        yaxis=dict(visible=False, range=[1.2, 11]),
+        margin=dict(t=50, b=10, l=10, r=10),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+    )
+    st.plotly_chart(fig_hybrid, use_container_width=True)
+
+# Fusion explanation
+st.markdown("""
+**Learned Fusion — the α parameter**
+
+The fusion layer combines both heads' probability distributions:
+
+$$P_{\\text{fused}} = \\alpha \\cdot P_{\\text{finbert}} + (1 - \\alpha) \\cdot P_{\\text{lstm}}$$
+
+where **α = sigmoid(raw_α)** is a learnable scalar constrained to (0, 1).
+
+- Initialised at α = 0.5 (raw_α = 0.0 → sigmoid(0) = 0.5)
+- Trained via backpropagation alongside the LSTM weights
+- After training, α typically converges to ~0.7–0.8 toward FinBERT (since it was specifically fine-tuned for this task)
+- The LSTM compensates on sequential/structural cues that [CLS] pooling misses
+
+**Why not a fixed 50/50 blend?** A trained α lets the model learn how much to trust
+each head from real data. It's a single parameter — no risk of overfitting — but it
+transforms an arbitrary design choice into a principled, data-driven one.
+""")
+
+# Training strategy
+with st.expander("🏋️ Training Strategy (train_lstm.py)", expanded=False):
+    st.markdown("""
+    **Step 1:** Load Financial PhraseBank (same ~2,264 samples from evaluate.py)
+
+    **Step 2:** Run frozen FinBERT encoder ONCE on all samples → cache `last_hidden_state` tensors.
+    This avoids recomputing embeddings every epoch.
+
+    **Step 3:** Train only:
+    - Bi-LSTM weights (~5M parameters)
+    - Fusion α (1 parameter)
+
+    **Hyperparameters:**
+    | Parameter | Value |
+    |---|---|
+    | Epochs | 10 |
+    | Optimizer | Adam |
+    | Learning rate | 1e-3 |
+    | Batch size | 16 |
+    | Loss | NLL on fused probabilities |
+    | Gradient clipping | 1.0 |
+    | LR scheduler | ReduceLROnPlateau |
+    | Validation split | 15% |
+
+    **Training time:** ~5–10 minutes on CPU with cached embeddings.
+
+    **Output:** `lstm_weights.pt` — loaded by `HybridSentimentClassifier` at inference time.
+    Training curves saved to `outputs/lstm_training_curves.png`.
+    """)
+
+# ═══════════════════════════════════════════════════════════════════
 # 4. PIPELINE FLOW
 # ═══════════════════════════════════════════════════════════════════
 st.markdown('<a name="pipeline"></a>', unsafe_allow_html=True)
-st.markdown('<p class="section-hdr">4 · End-to-End Pipeline Flow</p>', unsafe_allow_html=True)
+st.markdown('<p class="section-hdr">4 · End-to-End Hybrid Pipeline Flow</p>', unsafe_allow_html=True)
 
 st.markdown("""
 <div class="flow-box">
@@ -254,45 +440,34 @@ st.markdown("""
        │
        ▼
   ┌─────────────────────────────────────────────────────────────────┐
-  │  STEP 2 · EMBEDDING LAYER                                       │
-  │  Each token ID → 768-dimensional vector                         │
-  │  (Token Embedding + Positional + Segment embeddings summed)     │
-  └─────────────────────────────────────────────────────────────────┘
-       │
-       ▼
-  ┌─────────────────────────────────────────────────────────────────┐
-  │  STEP 3 · 12 × TRANSFORMER ENCODER LAYERS                      │
-  │  Each layer: Multi-Head Self-Attention (12 heads) + FFN + LN    │
-  │  Output: contextual representation for every token              │
-  └─────────────────────────────────────────────────────────────────┘
-       │
-       ▼
-  ┌─────────────────────────────────────────────────────────────────┐
-  │  STEP 4 · [CLS] POOLING                                         │
-  │  Extract the [CLS] token's final hidden state (768-d vector)    │
-  │  This vector encodes the sequence-level meaning                 │
-  └─────────────────────────────────────────────────────────────────┘
-       │
-       ▼
-  ┌─────────────────────────────────────────────────────────────────┐
-  │  STEP 5 · CLASSIFICATION HEAD                                   │
-  │  Linear(768 → 3) → raw logits [pos_score, neg_score, neu_score] │
-  │  e.g. [3.821, -1.204, 0.103]                                    │
-  └─────────────────────────────────────────────────────────────────┘
-       │
-       ▼
-  ┌─────────────────────────────────────────────────────────────────┐
-  │  STEP 6 · SOFTMAX                                               │
-  │  P(label) = exp(logit) / Σ exp(all logits)                      │
-  │  [0.956, 0.021, 0.023] — argmax → Positive                     │
+  │  STEP 2 · FINBERT ENCODER (FROZEN — 12 Transformer layers)      │
+  │  Output: last_hidden_state (seq_len × 768) for every token      │
   └─────────────────────────────────────────────────────────────────┘
        │
        ├──────────────────────────────────────────┐
        ▼                                          ▼
-  PREDICTED LABEL + CONFIDENCE            LIME EXPLAINABILITY
-  "Positive" (95.6%)                      300 perturbed versions
-                                          → local linear model
-                                          → per-token weights
+  ┌────────────────────────┐    ┌─────────────────────────────────┐
+  │ STEP 3a · FinBERT HEAD │    │ STEP 3b · Bi-LSTM HEAD          │
+  │ [CLS] → Linear(768→3)  │    │ Full sequence → 2-layer BiLSTM   │
+  │ → Softmax → P_finbert  │    │ → final hidden → Linear(512→3)  │
+  │ [0.92, 0.03, 0.05]    │    │ → Softmax → P_lstm              │
+  └───────────┬────────────┘    │ [0.85, 0.07, 0.08]              │
+              │                 └───────────────┬─────────────────┘
+              │                                 │
+              └────────────────┬────────────────┘
+                               ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  STEP 4 · LEARNED FUSION                                        │
+  │  P_fused = α · P_finbert + (1-α) · P_lstm                      │
+  │  α is trained (starts 0.5, converges ~0.7–0.8)                 │
+  │  [0.90, 0.04, 0.06] → argmax → Positive                       │
+  └─────────────────────────────────────────────────────────────────┘
+       │
+       ├──────────────────────────────────────────┐
+       ▼                                          ▼
+  PREDICTED LABEL + CONFIDENCE           XAI: LIME + LSTM ATTRIBUTION
+  "Positive" (90.0%)                     LIME: perturb → fused model
+                                         LSTM: ‖h_t‖ per-token norms
 </div>
 """, unsafe_allow_html=True)
 
@@ -407,9 +582,10 @@ e.g. `"Apple earnings beat"` →
 - `"[MASK] earnings beat"` → P(Positive) stays at 0.88
 - `"Apple earnings [MASK]"` → P(Positive) drops to 0.65
 
-**Step 2 · Re-run FinBERT**
-Each perturbed version is passed through FinBERT to get new probabilities.
-This creates a dataset of (masked_input, probability) pairs.
+**Step 2 · Re-run the Hybrid Model**
+Each perturbed version is passed through the **fused FinBERT+LSTM system**.
+This is critical — LIME now explains the hybrid model's behaviour, not just FinBERT alone.
+The weights reflect how the *combined system* responds to word removal.
 
 **Step 3 · Fit local linear model**
 A weighted linear regression is fitted on the perturbation dataset,
@@ -467,6 +643,67 @@ with col2:
         plot_bgcolor="rgba(0,0,0,0)",
     )
     st.plotly_chart(fig_lime_flow, use_container_width=True)
+
+# ═══════════════════════════════════════════════════════════════════
+# 7b. LSTM TOKEN ATTRIBUTION
+# ═══════════════════════════════════════════════════════════════════
+st.markdown('<a name="lstm-attribution"></a>', unsafe_allow_html=True)
+st.markdown('<p class="section-hdr">7b · LSTM Token Attribution — A Second XAI Signal</p>', unsafe_allow_html=True)
+
+col1, col2 = st.columns(2)
+with col1:
+    st.markdown("""
+The Bi-LSTM provides a **second, independent attribution signal** alongside LIME.
+
+**How it works:**
+
+The LSTM produces a hidden state vector **h_t** at each token position **t**.
+The **L2 norm ‖h_t‖** at each position measures how "activated" the LSTM was
+by that token — conceptually similar to how neuron activation magnitude
+indicates importance in feedforward networks.
+
+**Key properties:**
+- **Independent of LIME** — computed from LSTM internals, not perturbation
+- **Token-level** — one score per WordPiece token
+- **Complementary** — when LIME and LSTM attribution agree on important tokens,
+  confidence in the explanation increases; when they disagree, it highlights
+  tokens where the two models have different "opinions"
+
+**Interpretation:**
+- High ‖h_t‖ → the LSTM's recurrent state changed significantly at this token
+- Low ‖h_t‖ → the token had minimal impact on the LSTM's internal state
+- Special tokens ([CLS], [SEP], [PAD]) are filtered out
+
+This dual-signal approach (LIME + LSTM attribution) is displayed side-by-side
+in the Analyser page, with an **agreement analysis** showing how much the two
+methods overlap on their top-ranked tokens.
+    """)
+
+with col2:
+    st.markdown("""
+    **Visual encoding:**
+
+    | Signal | Colour | Meaning |
+    |---|---|---|
+    | LIME (positive) | 🟢 Green | Pushes toward prediction |
+    | LIME (negative) | 🔴 Red | Pushes against prediction |
+    | LSTM attribution | 🔵 Blue | LSTM activation intensity |
+
+    **Agreement analysis:**
+    - **High agreement (≥60%)** — both signals highlight similar tokens → robust explanation
+    - **Partial agreement (30-60%)** — some overlap, complementary information
+    - **Low agreement (<30%)** — the LSTM focuses on different tokens than LIME's perturbation-based analysis
+    """)
+
+    # Mathematical formulation
+    st.markdown(r"""
+    **Mathematical formulation:**
+
+    $$\text{score}(t) = \frac{\|h_t\|_2}{\max_i \|h_i\|_2}$$
+
+    where $h_t \in \mathbb{R}^{512}$ is the concatenated forward+backward
+    hidden state at position $t$ from the 2-layer Bi-LSTM.
+    """)
 
 # ═══════════════════════════════════════════════════════════════════
 # 8. EVALUATION
@@ -572,16 +809,17 @@ with col2:
     st.plotly_chart(fig_conn, use_container_width=True)
 
 # ═══════════════════════════════════════════════════════════════════
-# 10. TECH STACK
+# 10. TECH STACK & DL CONCEPTS
 # ═══════════════════════════════════════════════════════════════════
 st.markdown('<p class="section-hdr">10 · Tech Stack</p>', unsafe_allow_html=True)
 
 tech = {
-    "🤗 Transformers": "FinBERT model loading, tokenisation, forward pass",
-    "🔥 PyTorch": "Tensor ops, softmax, attention extraction",
-    "🍋 LIME": "Local perturbation-based token explainability",
-    "🤗 Datasets": "Financial PhraseBank loading for evaluation",
-    "📊 Plotly": "All interactive charts and flow diagrams",
+    "🤗 Transformers": "FinBERT model loading, tokenisation, forward pass, frozen encoder",
+    "🔥 PyTorch": "Bi-LSTM, tensor ops, softmax, attention extraction, training loop",
+    "🍋 LIME": "Local perturbation-based token explainability (hybrid model)",
+    "🧠 nn.LSTM": "Bidirectional LSTM classification head (lstm_model.py)",
+    "🤗 Datasets": "Financial PhraseBank loading for training & evaluation",
+    "📊 Plotly": "All interactive charts, fusion comparison, flow diagrams",
     "🎯 Scikit-learn": "Accuracy, F1, confusion matrix metrics",
     "🌊 Streamlit": "Multi-page web app + caching",
     "🐼 Pandas / NumPy": "Data manipulation and numerical ops",
@@ -589,8 +827,23 @@ tech = {
 t_df = pd.DataFrame(list(tech.items()), columns=["Library","Role"])
 st.dataframe(t_df, use_container_width=True, hide_index=True)
 
+st.markdown('<p class="section-hdr">10b · Deep Learning Concepts Demonstrated</p>', unsafe_allow_html=True)
+
+dl_concepts = {
+    "Recurrent architecture (LSTM)": "BiLSTMHead — 2-layer bidirectional LSTM",
+    "Sequential modelling": "Reading full token embedding sequence, not just [CLS]",
+    "Transfer learning": "Frozen FinBERT encoder as feature extractor",
+    "Ensemble / model fusion": "Learned α blending two probability distributions",
+    "Explainability for DL": "LSTM hidden-state attribution + LIME on hybrid",
+    "Training pipeline": "train_lstm.py with loss curves, saved weights",
+    "Gradient-based training": "Adam optimiser, gradient clipping, LR scheduling",
+    "Regularisation": "Dropout (0.3), weight decay (1e-5)",
+}
+dl_df = pd.DataFrame(list(dl_concepts.items()), columns=["DL Concept", "Where It Appears"])
+st.dataframe(dl_df, use_container_width=True, hide_index=True)
+
 st.markdown("---")
 st.markdown("""<p style="text-align:center;color:#94a3b8;font-size:0.8rem;">
 ExplainSentinel · Built on <a href="https://github.com/VT69/FinSentinel">FinSentinel</a>
-· Vaibhav Tiwari · VIT Bhopal University
+· ProsusAI/finbert + Bi-LSTM · Vaibhav Tiwari · VIT Bhopal University
 </p>""", unsafe_allow_html=True)

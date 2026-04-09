@@ -1,7 +1,10 @@
 """
 explainer.py
-Token-level explainability for FinBERT predictions.
-Supports LIME (local) and SHAP (global / attention-based).
+Token-level explainability for FinBERT and Hybrid predictions.
+Supports:
+    - LIME (local perturbation-based)
+    - LSTM Token Attribution (L2 norm of Bi-LSTM hidden states)
+    - SHAP (global / attention-based — optional)
 """
 
 import numpy as np
@@ -13,8 +16,13 @@ def lime_explain(classifier, text: str, num_features: int = 10, num_samples: int
     """
     Explain a single prediction using LIME.
 
+    Works with both FinBERTClassifier and HybridSentimentClassifier —
+    both expose predict_proba_for_lime(). When using the hybrid classifier,
+    LIME perturbations run against the fused model, so the explanation
+    reflects the hybrid system's behaviour.
+
     Args:
-        classifier : FinBERTClassifier instance
+        classifier : FinBERTClassifier or HybridSentimentClassifier instance
         text       : Input financial headline
         num_features: Number of top tokens to highlight
         num_samples : LIME perturbation samples (higher = more stable)
@@ -58,6 +66,95 @@ def lime_explain(classifier, text: str, num_features: int = 10, num_samples: int
 def lime_html(lime_result: dict) -> str:
     """Return LIME's built-in HTML visualization."""
     return lime_result["lime_exp"].as_html()
+
+
+# ── LSTM Token Attribution ──────────────────────────────────────────────────
+
+def lstm_token_attribution(lstm_hidden_states: np.ndarray, tokens: list[str],
+                           attention_mask: list[int] = None) -> list[tuple[str, float]]:
+    """
+    Compute per-token attribution scores from Bi-LSTM hidden states.
+
+    The LSTM produces a hidden state h_t at each token position t.
+    The L2 norm ||h_t|| measures how much the LSTM was "activated"
+    by that token — higher norm = more important to the LSTM.
+
+    This gives a second, independent attribution signal alongside LIME.
+    When displayed side-by-side, you can see whether LIME and the LSTM
+    agree or disagree on which tokens matter.
+
+    Args:
+        lstm_hidden_states: (seq_len, hidden_dim*2) — from BiLSTMHead's output
+        tokens:             list of WordPiece tokens (same length as seq_len)
+        attention_mask:     optional mask to exclude padding tokens
+
+    Returns:
+        list of (token, normalised_score) tuples, sorted by score descending.
+        Scores are normalised to [0, 1] range.
+    """
+    if lstm_hidden_states is None:
+        return []
+
+    # Compute L2 norm at each position: ||h_t||
+    norms = np.linalg.norm(lstm_hidden_states, axis=1)  # (seq_len,)
+
+    # Mask out padding and special tokens
+    if attention_mask is not None:
+        mask = np.array(attention_mask[:len(norms)], dtype=bool)
+        norms = norms * mask
+
+    # Skip [CLS] and [SEP] tokens for cleaner attribution
+    for i, tok in enumerate(tokens[:len(norms)]):
+        if tok in ("[CLS]", "[SEP]", "[PAD]"):
+            norms[i] = 0.0
+
+    # Normalise to [0, 1]
+    max_norm = norms.max()
+    if max_norm > 0:
+        normalised = norms / max_norm
+    else:
+        normalised = norms
+
+    # Build (token, score) pairs, filter out zero-score tokens
+    attributions = []
+    for i, (tok, score) in enumerate(zip(tokens[:len(normalised)], normalised)):
+        if score > 0.0 and tok not in ("[CLS]", "[SEP]", "[PAD]"):
+            attributions.append((tok, float(score)))
+
+    # Sort by score descending
+    attributions.sort(key=lambda x: x[1], reverse=True)
+    return attributions
+
+
+def build_lstm_attribution_html(attributions: list[tuple[str, float]]) -> str:
+    """
+    Convert LSTM token attributions to inline HTML with blue-intensity highlights.
+    Uses a blue colour scale (distinct from LIME's green/red) to visually
+    separate the two attribution signals.
+
+    Args:
+        attributions: list of (token, normalised_score) from lstm_token_attribution()
+
+    Returns:
+        HTML string safe for st.markdown(..., unsafe_allow_html=True)
+    """
+    if not attributions:
+        return "<span style='color:#94a3b8;'>No LSTM attributions available.</span>"
+
+    max_score = max(s for _, s in attributions) if attributions else 1.0
+
+    def token_html(token, score):
+        intensity = int(min(score / max_score * 220, 220))
+        color = f"rgba(59,130,246,{intensity/255:.2f})"  # blue
+        return (
+            f'<span style="background-color:{color};'
+            f'border-radius:3px;padding:1px 4px;margin:1px;'
+            f'font-size:1rem;">'
+            f'{token}</span>'
+        )
+
+    parts = [token_html(t, s) for t, s in attributions]
+    return " ".join(parts)
 
 
 # ── SHAP ────────────────────────────────────────────────────────────────────
@@ -152,3 +249,22 @@ if __name__ == "__main__":
         bar = "█" * int(abs(weight) * 30)
         sign = "+" if weight > 0 else "-"
         print(f"  {sign} {token:<20} {bar}")
+
+    # Test LSTM attribution (requires trained hybrid model)
+    try:
+        from sentiment_classifier import HybridSentimentClassifier
+        hybrid = HybridSentimentClassifier()
+        if hybrid.lstm_available:
+            detailed = hybrid.predict_detailed(text)
+            attribs = lstm_token_attribution(
+                detailed["lstm_hidden_states"],
+                detailed["tokens"],
+                detailed["attention_mask"],
+            )
+            print("\n── LSTM Token Attribution ──")
+            for tok, score in attribs[:10]:
+                bar = "█" * int(score * 30)
+                print(f"  {tok:<20} {bar} ({score:.3f})")
+    except Exception as e:
+        print(f"\n[LSTM test skipped: {e}]")
+
