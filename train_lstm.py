@@ -60,7 +60,7 @@ def parse_args():
 def load_phrasebank():
     """Load Financial PhraseBank and return texts + FinBERT-aligned labels."""
     print("[Train] Loading Financial PhraseBank (sentences_allagree) ...")
-    ds = load_dataset("financial_phrasebank", "sentences_allagree", trust_remote_code=True)
+    ds = load_dataset("takala/financial_phrasebank", "sentences_allagree", trust_remote_code=True)
     data = ds["train"]
     texts = data["sentence"]
     # Convert PhraseBank labels to FinBERT label space
