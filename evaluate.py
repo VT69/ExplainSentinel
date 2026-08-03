@@ -31,7 +31,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 def load_phrasebank(split: str = "sentences_allagree"):
     """Load Financial PhraseBank from HuggingFace datasets."""
     print(f"[Eval] Loading Financial PhraseBank ({split}) ...")
-    ds = load_dataset("financial_phrasebank", split)
+    ds = load_dataset("financial_phrasebank", split, trust_remote_code=True)
     data = ds["train"]  # only one split available
     texts = data["sentence"]
     labels = [PHRASEBANK_TO_LABEL[l] for l in data["label"]]
