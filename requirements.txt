@@ -6,7 +6,7 @@ transformers>=4.44.0
 torch>=2.2.0
 torchvision>=0.17.0
 lime==0.2.0.1
-datasets>=2.19.0
+datasets<3.0.0
 scikit-learn>=1.4.0
 streamlit>=1.33.0
 plotly>=5.20.0
