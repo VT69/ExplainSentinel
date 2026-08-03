@@ -284,9 +284,14 @@ def train(args):
             print(f"  ✅ Best model saved → {args.save_path}")
 
     total_time = time.time() - t_start
-    print(f"\n[Train] Done in {total_time:.0f}s")
-    print(f"[Train] Best val loss: {best_val_loss:.4f}")
-    print(f"[Train] Final α: {fusion.alpha:.4f}")
+    print(f"\n" + "="*50)
+    print(f"[Train] Training Complete!")
+    print(f"[Train] Total Time: {total_time:.0f}s")
+    print(f"[Train] Best Validation Loss: {best_val_loss:.4f}")
+    print(f"[Train] Best Validation Accuracy: {max(history['val_acc']):.4f}")
+    print(f"[Train] Final Train Accuracy: {history['train_acc'][-1]:.4f}")
+    print(f"[Train] Final Fusion α: {fusion.alpha:.4f}")
+    print("="*50 + "\n")
 
     # ── Save training history ───────────────────────────────────────────────
     history_path = os.path.join(OUTPUT_DIR, "lstm_training_history.json")
