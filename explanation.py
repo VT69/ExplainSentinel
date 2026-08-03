@@ -1,5 +1,5 @@
 """
-pages/explanation.py  —  ExplainSentinel
+pages/explanation.py  —  PrismXAI
 Full background explanation page with flow diagrams, dataset stats, architecture.
 """
 
@@ -10,7 +10,7 @@ import pandas as pd
 import numpy as np
 
 st.set_page_config(
-    page_title="ExplainSentinel · How It Works",
+    page_title="PrismXAI · How It Works",
     page_icon="📖",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -66,7 +66,7 @@ with st.sidebar:
 # ═══════════════════════════════════════════════════════════════════
 # HEADER
 # ═══════════════════════════════════════════════════════════════════
-st.markdown('<p class="page-title">📖 How ExplainSentinel Works</p>', unsafe_allow_html=True)
+st.markdown('<p class="page-title">📖 How PrismXAI Works</p>', unsafe_allow_html=True)
 st.markdown("A complete walkthrough of the dataset, model, pipeline, and explainability method.")
 st.markdown("---")
 
@@ -79,13 +79,13 @@ st.markdown('<p class="section-hdr">1 · Overview</p>', unsafe_allow_html=True)
 col1, col2 = st.columns([1.2, 1])
 with col1:
     st.markdown("""
-ExplainSentinel answers two questions for any financial headline:
+PrismXAI answers two questions for any financial headline:
 
 1. **What** sentiment does this text carry? *(FinBERT + Bi-LSTM Hybrid)*
 2. **Why** did the model assign that sentiment? *(LIME + LSTM Token Attribution)*
 
 Most NLP sentiment tools are black boxes — they output a label with no justification.
-ExplainSentinel uses a **hybrid architecture** — FinBERT's transformer encoder provides
+PrismXAI uses a **hybrid architecture** — FinBERT's transformer encoder provides
 token embeddings that feed into both FinBERT's own [CLS] classification head and a
 **Bidirectional LSTM** head simultaneously. Their outputs are blended via a **learned
 fusion scalar α**, and the combined system is explained through two independent
@@ -761,14 +761,14 @@ st.markdown('<p class="section-hdr">9 · Connection to FinSentinel</p>', unsafe_
 col1, col2 = st.columns(2)
 with col1:
     st.markdown("""
-**ExplainSentinel is the explainability extension of FinSentinel.**
+**PrismXAI is the explainability extension of FinSentinel.**
 
 [FinSentinel](https://github.com/VT69/FinSentinel) established:
 - GMSI (Global Market Stress Index) — built from FinBERT/VADER sentiment on news + GDELT events
 - Sentiment signals carry statistically significant predictive value (placebo-tested)
 - Low stress (Q1 GMSI) predicts *higher* forward volatility — the Complacency Effect
 
-**ExplainSentinel answers the next question:**
+**PrismXAI answers the next question:**
 > *The GMSI uses FinBERT to score headlines. But which specific words in those headlines
 > drove the sentiment scores that feed the GMSI?*
 
@@ -780,7 +780,7 @@ with col2:
     steps_conn = [
         ("Financial News Headline", "#dbeafe", "#1e40af"),
         ("FinBERT Sentiment Score", "#fce7f3", "#9d174d"),
-        ("↕ ExplainSentinel adds token-level WHY", "#fef9c3", "#854d0e"),
+        ("↕ PrismXAI adds token-level WHY", "#fef9c3", "#854d0e"),
         ("GMSI Construction\n(FinSentinel)", "#f0fdf4", "#166534"),
         ("Conditional Volatility Analysis\n(FinSentinel Paper 1)", "#f3e8ff", "#6b21a8"),
         ("Complacency Effect Finding", "#dcfce7", "#166534"),
@@ -798,7 +798,7 @@ with col2:
             fig_conn.add_annotation(x=0.5, y=y-0.46,
                 text="↓", showarrow=False, font=dict(color="#94a3b8", size=14))
     fig_conn.update_layout(
-        title="FinSentinel → ExplainSentinel Connection",
+        title="FinSentinel → PrismXAI Connection",
         height=len(steps_conn)*62+60,
         xaxis=dict(visible=False, range=[0,1]),
         yaxis=dict(visible=False, range=[-0.6, len(steps_conn)-0.4]),
@@ -844,6 +844,6 @@ st.dataframe(dl_df, use_container_width=True, hide_index=True)
 
 st.markdown("---")
 st.markdown("""<p style="text-align:center;color:#94a3b8;font-size:0.8rem;">
-ExplainSentinel · Built on <a href="https://github.com/VT69/FinSentinel">FinSentinel</a>
+PrismXAI · Built on <a href="https://github.com/VT69/FinSentinel">FinSentinel</a>
 · ProsusAI/finbert + Bi-LSTM · Vaibhav Tiwari · VIT Bhopal University
 </p>""", unsafe_allow_html=True)

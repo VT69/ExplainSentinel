@@ -1,5 +1,5 @@
 """
-app.py  —  ExplainSentinel  (Main Analyser Page)
+app.py  —  PrismXAI  (Main Analyser Page)
 FinBERT + Bi-LSTM Hybrid with Learned Fusion
 Run: streamlit run app.py
 """
@@ -15,7 +15,7 @@ from explainer import lime_explain, build_highlight_html, lstm_token_attribution
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="ExplainSentinel · Analyser",
+    page_title="PrismXAI · Analyser",
     page_icon="🔍",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -122,7 +122,7 @@ def cached_lime_explain(_clf, text: str, num_features: int, num_samples: int):
     }
 
 # ── Header ────────────────────────────────────────────────────────────────────
-st.markdown('<p class="main-title">🔍 ExplainSentinel</p>', unsafe_allow_html=True)
+st.markdown('<p class="main-title">🔍 PrismXAI</p>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">FinBERT + Bi-LSTM Hybrid · Learned Fusion · LIME + LSTM Attribution</p>',
             unsafe_allow_html=True)
 
@@ -581,6 +581,6 @@ with st.expander("📋 Batch Analysis"):
 
 st.markdown("""<hr style="margin-top:2rem;">
 <p style="text-align:center;color:#94a3b8;font-size:0.8rem;">
-ExplainSentinel · Built on <a href="https://github.com/VT69/FinSentinel">FinSentinel</a>
+PrismXAI · Built on <a href="https://github.com/VT69/FinSentinel">FinSentinel</a>
 · ProsusAI/finbert + Bi-LSTM · LIME + LSTM Attribution XAI
 </p>""", unsafe_allow_html=True)

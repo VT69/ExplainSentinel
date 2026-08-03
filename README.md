@@ -1,15 +1,15 @@
-# 🔍 ExplainSentinel
+# 🔍 PrismXAI
 
 **Token-Level Explainability for Financial NLP**  
 *An NLP project built on top of [FinSentinel](https://github.com/VT69/FinSentinel)*
 
 [![Python](https://img.shields.io/badge/Python-3.11-3b82f6?style=flat-square&logo=python)](https://python.org)
-[![Streamlit](https://img.shields.io/badge/Streamlit-App-FF4B4B?style=flat-square&logo=streamlit)](https://explainsentinel.streamlit.app/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-App-FF4B4B?style=flat-square&logo=streamlit)](https://prismxai.streamlit.app/)
 [![Model](https://img.shields.io/badge/Model-ProsusAI%2FFinBERT%20%2B%20BiLSTM-10b981?style=flat-square)](https://huggingface.co/ProsusAI/finbert)
 ![Explainability](https://img.shields.io/badge/XAI-LIME%20%2B%20LSTM%20Attribution-f59e0b?style=flat-square)
 [![Dataset](https://img.shields.io/badge/Dataset-Financial%20PhraseBank-6366f1?style=flat-square)](https://huggingface.co/datasets/financial_phrasebank)
 
-**🚀 Try the live application here:** [https://explainsentinel.streamlit.app/](https://explainsentinel.streamlit.app/)
+**🚀 Try the live application here:** [https://prismxai.streamlit.app/](https://prismxai.streamlit.app/)
 
 ---
 
@@ -19,7 +19,7 @@ FinSentinel showed that sentiment signals carry weak but statistically significa
 
 > **Which words actually drive these sentiment predictions, and how much do we trust the model?**
 
-ExplainSentinel answers this by adding a **token-level explainability layer** to a custom **FinBERT + Bi-LSTM Hybrid Architecture**. It uses **LIME** (Local Interpretable Model-agnostic Explanations) alongside **LSTM Token Attribution** to surface the exact words driving predictions, deployed as an interactive, highly-optimized Streamlit web app.
+PrismXAI answers this by adding a **token-level explainability layer** to a custom **FinBERT + Bi-LSTM Hybrid Architecture**. It uses **LIME** (Local Interpretable Model-agnostic Explanations) alongside **LSTM Token Attribution** to surface the exact words driving predictions, deployed as an interactive, highly-optimized Streamlit web app.
 
 Instead of relying solely on the single `[CLS]` token for classification, our hybrid model feeds FinBERT's raw token embeddings into a **Bidirectional LSTM**, capturing sequential context. The two signals are fused via a **learnable scalar (α)**, providing superior robustness.
 
@@ -27,7 +27,7 @@ Instead of relying solely on the single `[CLS]` token for classification, our hy
 
 ## ✨ Key Capabilities
 
-The ExplainSentinel interactive dashboard breaks down every aspect of a prediction:
+The PrismXAI interactive dashboard breaks down every aspect of a prediction:
 
 1. **Step 1: NLP Tokenisation**
    Displays the exact BERT WordPiece tokens, sub-words (`##`), IDs, and internal attention masks generated from the input text.
@@ -45,7 +45,7 @@ The ExplainSentinel interactive dashboard breaks down every aspect of a predicti
 ## 🛠 Project Structure
 
 ```text
-ExplainSentinel/
+PrismXAI/
 ├── app.py                    # Main Streamlit Dashboard (Analyser)
 ├── pages/
 │   └── explanation.py        # Streamlit page detailing how the tech works
@@ -61,12 +61,12 @@ ExplainSentinel/
 
 ## 🚀 Quickstart
 
-You can run the full ExplainSentinel dashboard locally. The ProsusAI/FinBERT model weights (~440MB) will be downloaded automatically by HuggingFace on the first run.
+You can run the full PrismXAI dashboard locally. The ProsusAI/FinBERT model weights (~440MB) will be downloaded automatically by HuggingFace on the first run.
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/VT69/ExplainSentinel.git
-cd ExplainSentinel
+git clone https://github.com/VT69/PrismXAI.git
+cd PrismXAI
 
 # 2. Install dependencies
 pip install -r requirements.txt
@@ -99,15 +99,15 @@ Our FinBERT implementation was benchmarked on the `sentences_allagree` split of 
 
 ## 🔗 Connection to FinSentinel
 
-ExplainSentinel acts as the **explainability extension** of FinSentinel:
+PrismXAI acts as the **explainability extension** of FinSentinel:
 
-| FinSentinel (Original Pipeline) | ExplainSentinel (This Project) |
+| FinSentinel (Original Pipeline) | PrismXAI (This Project) |
 | --- | --- |
 | *What* sentiment does a headline carry? | *Why* did the model assign that sentiment? |
 | Pipeline-level output (GMSI, signal) | Token-level model interpretability |
 | End-to-End Trading Research paper scope | NLP transparency & reproducible visualization |
 
-The FinBERT model and data pipelines implemented in FinSentinel feed directly into ExplainSentinel's architecture.
+The FinBERT model and data pipelines implemented in FinSentinel feed directly into PrismXAI's architecture.
 
 ---
 
