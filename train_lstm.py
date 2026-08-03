@@ -58,13 +58,33 @@ def parse_args():
 
 
 def load_phrasebank():
-    """Load Financial PhraseBank and return texts + FinBERT-aligned labels."""
-    print("[Train] Loading Financial PhraseBank (sentences_allagree) ...")
-    ds = load_dataset("takala/financial_phrasebank", "sentences_allagree", trust_remote_code=True)
-    data = ds["train"]
-    texts = data["sentence"]
-    # Convert PhraseBank labels to FinBERT label space
-    labels = [PHRASEBANK_TO_FINBERT[l] for l in data["label"]]
+    """Load Financial PhraseBank directly from canonical URL to bypass HuggingFace dataset script errors."""
+    print("[Train] Loading Financial PhraseBank (sentences_allagree) directly from source ...")
+    import urllib.request
+    import zipfile
+    import os
+    
+    url = "https://huggingface.co/datasets/takala/financial_phrasebank/resolve/main/data/FinancialPhraseBank-v1.0.zip"
+    zip_path = "FinancialPhraseBank-v1.0.zip"
+    
+    if not os.path.exists(zip_path):
+        urllib.request.urlretrieve(url, zip_path)
+        
+    texts = []
+    labels = []
+    # PhraseBank to FinBERT: positive=0, negative=1, neutral=2
+    label_map = {"positive": 0, "negative": 1, "neutral": 2}
+    
+    with zipfile.ZipFile(zip_path, 'r') as z:
+        with z.open("FinancialPhraseBank-v1.0/Sentences_AllAgree.txt") as f:
+            for line in f.read().decode('iso-8859-1').splitlines():
+                line = line.strip()
+                if not line: continue
+                parts = line.rsplit('@', 1)
+                if len(parts) == 2:
+                    texts.append(parts[0])
+                    labels.append(label_map[parts[1].lower()])
+                    
     print(f"[Train] Loaded {len(texts)} samples.")
     return texts, labels
 

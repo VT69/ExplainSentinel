@@ -29,12 +29,33 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 def load_phrasebank(split: str = "sentences_allagree"):
-    """Load Financial PhraseBank from HuggingFace datasets."""
-    print(f"[Eval] Loading Financial PhraseBank ({split}) ...")
-    ds = load_dataset("takala/financial_phrasebank", split, trust_remote_code=True)
-    data = ds["train"]  # only one split available
-    texts = data["sentence"]
-    labels = [PHRASEBANK_TO_LABEL[l] for l in data["label"]]
+    """Load Financial PhraseBank directly from canonical URL to bypass HuggingFace dataset script errors."""
+    print(f"[Eval] Loading Financial PhraseBank ({split}) directly from source ...")
+    import urllib.request
+    import zipfile
+    import os
+    
+    url = "https://huggingface.co/datasets/takala/financial_phrasebank/resolve/main/data/FinancialPhraseBank-v1.0.zip"
+    zip_path = "FinancialPhraseBank-v1.0.zip"
+    
+    if not os.path.exists(zip_path):
+        urllib.request.urlretrieve(url, zip_path)
+        
+    texts = []
+    labels = []
+    # evaluate.py expects labels as strings: "Positive", "Negative", "Neutral"
+    label_map = {"positive": "Positive", "negative": "Negative", "neutral": "Neutral"}
+    
+    with zipfile.ZipFile(zip_path, 'r') as z:
+        with z.open("FinancialPhraseBank-v1.0/Sentences_AllAgree.txt") as f:
+            for line in f.read().decode('iso-8859-1').splitlines():
+                line = line.strip()
+                if not line: continue
+                parts = line.rsplit('@', 1)
+                if len(parts) == 2:
+                    texts.append(parts[0])
+                    labels.append(label_map[parts[1].lower()])
+                    
     print(f"[Eval] Loaded {len(texts)} samples.")
     return texts, labels
 
