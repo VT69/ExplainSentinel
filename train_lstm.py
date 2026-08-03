@@ -191,7 +191,7 @@ def train(args):
     all_params = list(lstm_head.parameters()) + list(fusion.parameters())
     optimizer = torch.optim.Adam(all_params, lr=args.lr, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=2, verbose=True
+        optimizer, mode="min", factor=0.5, patience=2
     )
 
     # ── Training loop ───────────────────────────────────────────────────────
