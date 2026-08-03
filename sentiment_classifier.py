@@ -141,7 +141,10 @@ class HybridSentimentClassifier:
 
         # ── Load FinBERT (frozen encoder + classification head) ─────────────
         self.tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-        self.finbert = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
+        self.finbert = AutoModelForSequenceClassification.from_pretrained(
+            MODEL_NAME, 
+            attn_implementation="eager"
+        )
         self.finbert.to(self.device)
         self.finbert.eval()
 
